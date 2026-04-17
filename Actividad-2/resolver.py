@@ -31,6 +31,8 @@ def resolver(parsed_msg, address_port):
         sock.sendto(bytes(query.pack()), server_address)
         data, _ = sock.recvfrom(1024)
         response = DNSRecord.parse(data)
+        data_type = response.rr.rtype
+        print(data_type) #número
 
     finally:
         sock.close()
