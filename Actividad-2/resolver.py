@@ -1,17 +1,17 @@
 import binascii
-from dnslib import DNSRecord
+from  dnslib import DNSRecord
 import socket
 
 def parse_dns(dns_message):
 
     message = DNSRecord.parse(dns_message)
 
-    msg_dictionary = {"Header": [message.header.id, message.header.a, message.header.auth, message.header.ar],
-                      "Question": str(message.get_q().get_qname()),
-                      "Answer": message.rr,
-                      "Authority": message.auth,
-                      "Additional": message.ar
-                     }
+    msg_dictionary   =  {"Header": [message.header.id, message.header.a, message.header.auth, message.header.ar],
+                        "Question": str(message.get_q().get_qname()),
+                        "Answer": message.rr,
+                        "Authority": message.auth,
+                        "Additional": message.ar
+                        }
 
     
 
@@ -24,8 +24,18 @@ def resolver(parsed_msg, address_port):
     query = DNSRecord.question(qname)
     server_address = (address_port)
     
+    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 
-    return
+    try:
+
+        sock.sendto(bytes(query.pack()), server_address)
+        data, _ = sock.recvfrom(1024)
+        response = DNSRecord.parse(data)
+
+    finally:
+        sock.close()
+
+    return response
 
 
 if __name__ == "__main__":
@@ -46,6 +56,6 @@ if __name__ == "__main__":
 
         print(f'Conexión con {client_address} ha sido establecida')
 
-        print(parse_dns(recv_msg_client))
+        resolver(parse_dns(recv_msg_client), root_server)
 
 
