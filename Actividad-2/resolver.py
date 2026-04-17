@@ -1,5 +1,6 @@
 import binascii
 from  dnslib import DNSRecord
+from dnslib import CLASS, QTYPE
 import socket
 
 def parse_dns(dns_message):
@@ -22,17 +23,37 @@ def resolver(parsed_msg, address_port):
 
     qname = parsed_msg["Question"]
     query = DNSRecord.question(qname)
-    server_address = (address_port)
+    server_address = address_port
     
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 
     try:
-
         sock.sendto(bytes(query.pack()), server_address)
         data, _ = sock.recvfrom(1024)
         response = DNSRecord.parse(data)
-        data_type = response.rr.rtype
-        print(data_type) #número
+        if (response.header.a >= 1):
+            for rr in response.rr:
+                if (QTYPE[rr.rtype] == QTYPE.A): #Busca tipo A en Answer
+                    return response
+        elif (response.header.auth >= 1):
+            for rr in response.auth:
+                if (QTYPE[rr.rtype] == QTYPE.NS): #Busca tipo NS en Authority
+                    ns_name = str(rr.rdata)
+                    ns_ip = None
+                    for ar in response.ar:
+                        if (QTYPE[ar.rtype] == QTYPE.A): #Busca tipo A en Additional
+                            ns_ip = str(ar.rdata)
+                            break
+                    if (ns_ip):                                         #<--Si hay IP (4.c.i)
+                        return resolver(parsed_msg, (ns_ip, 53))
+                    else:                                               #<--No hay IP(4.c.ii)
+                        ns_parsed = {"Question": ns_name}
+                        ns_response = resolver(ns_parsed, address_port)  # Resuelve la IP de Name Server
+                        for rr in ns_response.rr:
+                            if QTYPE[rr.rtype] == QTYPE.A:
+                                ns_ip = str(rr.rdata)
+                                break
+                        return resolver(parsed_msg, (ns_ip, 53))
 
     finally:
         sock.close()
