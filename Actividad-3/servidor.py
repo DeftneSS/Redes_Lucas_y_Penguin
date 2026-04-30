@@ -1,4 +1,5 @@
 import socket
+from socketTCP import SocketTCP
 
 if __name__ == "__main__":
     buff_size = 1024
@@ -13,6 +14,9 @@ if __name__ == "__main__":
 
     while True:
         recv_msg_client, client_address = socket_servidor.recvfrom(buff_size)
-        mensaje_recibido += recv_msg_client.decode('utf-8')
+
+        segment = SocketTCP.parse_segment(recv_msg_client)
+
+        mensaje_recibido += segment["DATOS"].decode('utf-8')
 
         print(mensaje_recibido)

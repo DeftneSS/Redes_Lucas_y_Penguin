@@ -14,14 +14,14 @@ class SocketTCP():
     def parse_segment(segment):
 
         header = segment[0]
-        sequence = segment[1:4]
-        datos = segment[5:20]
+        sequence = segment[1:5]
+        datos = segment[5:21]
 
         parsed = {
             "SYN": 0,
             "ACK": 0,
             "FIN": 0,
-            "SEQ": sequence,
+            "SEQ": int.from_bytes(sequence, 'big'),
             "DATOS": datos
         }
 
@@ -45,9 +45,10 @@ class SocketTCP():
         return parsed
 
 
+    @staticmethod
     def create_segment(parsed_segment):
 
-        segment = bytearray(20)
+        segment = bytearray(21)
 
         if parsed_segment["SYN"] == 1 and parsed_segment["ACK"] == 0 and parsed_segment["FIN"] == 0:
             header = 4
@@ -68,7 +69,7 @@ class SocketTCP():
             header = 0
 
         segment[0] = header
-        segment[1:4] = parsed_segment["SEQ"]
-        segment[5:20] = parsed_segment["DATOS"]
+        segment[1:5] = parsed_segment["SEQ"].to_bytes(4, 'big')
+        segment[5:21] = parsed_segment["DATOS"]
 
         return segment
