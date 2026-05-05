@@ -142,7 +142,7 @@ class SocketTCP():
 
                 next_socket = SocketTCP()
                 direccion_ip, puerto = self.direccionOrigen
-                next_socket.bind((direccion_ip, 0))
+                next_socket.bind((direccion_ip, 0)) #Explicar en el informe el puerto 0 (automático)
 
                 return next_socket 
 
