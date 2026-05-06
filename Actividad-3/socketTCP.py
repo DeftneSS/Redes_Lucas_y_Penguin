@@ -143,11 +143,36 @@ class SocketTCP():
                 next_socket = SocketTCP()
                 direccion_ip, puerto = self.direccionOrigen
                 next_socket.bind((direccion_ip, 0)) #Explicar en el informe el puerto 0 (automático)
+                
+                return next_socket, next_socket.direccionOrigen
 
-                return next_socket 
 
             else:
                 print("Error en la conexión")
 
         else:
             print("Error en la conexión")
+
+
+    def send(self, message):
+
+        message_length = len(message).encode('utf-8')
+
+        parsed = {
+            "SYN": 0,
+            "ACK": 0,
+            "FIN": 0,
+            "SEQ": self.seq,
+            "DATOS": message_length
+        }
+
+        mensaje = self.create_segment(parsed)
+        self.socketUDP.sendto(mensaje, self.direccionDestino)
+
+        try:
+            self.socketUDP.settimeout(5)
+            self.socketUDP.recvfrom(1024)
+
+
+        except socket.timeout:
+            self.send(message)
