@@ -122,7 +122,7 @@ class SocketTCP():
 
         if parsed_mensaje["SYN"] == 1 and parsed_mensaje["ACK"] == 0 and parsed_mensaje["FIN"] == 0:
             self.direccionDestino = add
-            self.seq =  parsed_mensaje["SEQ"] + 1
+            self.seq = parsed_mensaje["SEQ"] + 1
 
             parsed_syn_ack = {
                 "SYN": 1,
@@ -156,8 +156,8 @@ class SocketTCP():
 
     def send(self, message):
 
-        message_length = len(message).encode('utf-8')
-
+        message_length = str(len(message)).encode("utf-8")
+        byte_length = len(message_length)
         parsed = {
             "SYN": 0,
             "ACK": 0,
@@ -168,11 +168,20 @@ class SocketTCP():
 
         mensaje = self.create_segment(parsed)
         self.socketUDP.sendto(mensaje, self.direccionDestino)
-
+        self.socketUDP.settimeout(5)
         try:
-            self.socketUDP.settimeout(5)
-            self.socketUDP.recvfrom(1024)
+            respuesta, add = self.socketUDP.recvfrom(1024)
 
 
         except socket.timeout:
             self.send(message)
+        
+        respuesta_parsed = self.parse_segment(respuesta)
+
+        if respuesta_parsed["SYN"] == 0 and respuesta_parsed["ACK"] == 1 and respuesta_parsed["FIN"] == 0 and respuesta_parsed["SEQ"] == self.seq + byte_length:
+            
+            while True:
+
+
+
+
