@@ -158,30 +158,52 @@ class SocketTCP():
 
         message_length = str(len(message)).encode("utf-8")
         byte_length = len(message_length)
-        parsed = {
+        parsed_length = {
             "SYN": 0,
             "ACK": 0,
             "FIN": 0,
             "SEQ": self.seq,
-            "DATOS": message_length
+            "DATOS": message_length.ljust(16, b'\x00')
         }
 
-        mensaje = self.create_segment(parsed)
-        self.socketUDP.sendto(mensaje, self.direccionDestino)
+        mensaje = self.create_segment(parsed_length)
         self.socketUDP.settimeout(5)
-        try:
-            respuesta, add = self.socketUDP.recvfrom(1024)
+
+        while True:
+            self.socketUDP.sendto(mensaje, self.direccionDestino)
+            try:
+                respuesta, add = self.socketUDP.recvfrom(1024)
+                respuesta_parsed = self.parse_segment(respuesta)
+                if respuesta_parsed["SYN"] == 0 and respuesta_parsed["ACK"] == 1 and respuesta_parsed["FIN"] == 0 and respuesta_parsed["SEQ"] == self.seq + byte_length:
+                    break
 
 
-        except socket.timeout:
-            self.send(message)
-        
-        respuesta_parsed = self.parse_segment(respuesta)
+            except socket.timeout:
+                continue
 
-        if respuesta_parsed["SYN"] == 0 and respuesta_parsed["ACK"] == 1 and respuesta_parsed["FIN"] == 0 and respuesta_parsed["SEQ"] == self.seq + byte_length:
-            
+        contador = 0
+        while contador < len(message):
+            particion = message[contador:contador+16]
+            particion_length = len(particion)
+
+            parsed_particion = {
+                "SYN": 0,
+                "ACK": 0,
+                "FIN": 0,
+                "SEQ": self.seq,
+                "DATOS": particion.ljust(16, b'\x00')  #Rellena con ceros para llegar a 16 bytes (explicar en informe)
+            }
+            mensaje_particion = self.create_segment(parsed_particion)
+
             while True:
+                self.socketUDP.sendto(mensaje_particion, self.direccionDestino)
+                try:
+                    respuesta, add = self.socketUDP.recvfrom(1024)
+                    respuesta_parsed = self.parse_segment(respuesta)
+                    if respuesta_parsed["SYN"] == 0 and respuesta_parsed["ACK"] == 1 and respuesta_parsed["FIN"] == 0 and respuesta_parsed["SEQ"] == self.seq + particion_length:
+                        self.seq += particion_length
+                        contador += particion_length
+                        break
 
-
-
-
+                except socket.timeout:
+                    continue
