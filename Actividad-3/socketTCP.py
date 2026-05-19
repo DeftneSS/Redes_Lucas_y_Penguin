@@ -10,6 +10,7 @@ class SocketTCP():
         self.seq = 0
         self.ack = 0
         self.fin = 0
+        self.in_mensaje = 0
 
     @staticmethod
     def parse_segment(segment):
@@ -157,15 +158,16 @@ class SocketTCP():
     def send(self, message):
 
         message_length = str(len(message)).encode("utf-8")
-        byte_length = len(message_length)
+
         parsed_length = {
             "SYN": 0,
             "ACK": 0,
             "FIN": 0,
             "SEQ": self.seq,
-            "DATOS": message_length.ljust(16, b'\x00')
+            "DATOS": message_length
         }
 
+        byte_length = len(message_length)
         mensaje = self.create_segment(parsed_length)
         self.socketUDP.settimeout(5)
 
@@ -207,3 +209,60 @@ class SocketTCP():
 
                 except socket.timeout:
                     continue
+
+    def recv(self, buff_size):
+
+        self.in_mensaje = 0
+
+        mensaje_length = 0
+        return_length = 0
+
+        if self.in_mensaje == 0:
+            mensaje, add = self.socketUDP.recvfrom(1024)
+            parsed_mensaje = self.parse_segment(mensaje)
+
+            int_length = int(parsed_mensaje["DATOS"].decode("utf-8"))
+
+            if int_length > 0:
+
+                return_length = int_length
+                self.seq = parsed_mensaje["SEQ"] + int_length
+                parsed_ack = {
+                    "SYN": 0,
+                    "ACK": 1,
+                    "FIN": 0,
+                    "SEQ": self.seq,
+                    "DATOS": b''
+                }
+
+                mensaje_ack = self.create_segment(parsed_ack)
+                self.socketUDP.sendto(mensaje_ack, self.direccionDestino)
+                self.in_mensaje = 1
+
+        buff = buff_size
+        while min(buff, return_length) != mensaje_length:
+            mensaje, add = self.socketUDP.recvfrom(1024)
+            parsed_mensaje = self.parse_segment(mensaje)
+            mensaje_recibido = b''
+
+            if parsed_mensaje["SEQ"] == self.seq:
+                mensaje_recibido += parsed_mensaje["DATOS"]
+                self.seq += len(parsed_mensaje["DATOS"].rstrip(b'\x00')) #Quita los ceros añadidos para el relleno
+
+                parsed_ack = {
+                    "SYN": 0,   
+                    "ACK": 1,
+                    "FIN": 0,
+                    "SEQ": self.seq,
+                    "DATOS": b''
+                }
+
+                mensaje_length += len(parsed_mensaje["DATOS"].rstrip(b'\x00'))
+
+                mensaje_ack = self.create_segment(parsed_ack)
+                self.socketUDP.sendto(mensaje_ack, self.direccionDestino)
+
+        if mensaje_length >= return_length:
+            self.in_mensaje = 0
+
+        return mensaje_recibido.decode("utf-8")
