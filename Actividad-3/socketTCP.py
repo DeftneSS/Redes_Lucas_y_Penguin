@@ -10,6 +10,7 @@ class SocketTCP():
         self.seq = 0
         self.ack = 0
         self.fin = 0
+        self.msg_perdido = None
         self.in_mensaje = 0
         self.return_length = 0
         self.recibido_total = 0
@@ -96,62 +97,77 @@ class SocketTCP():
         }
 
         mensaje = self.create_segment(parsed)
+        self.socketUDP.settimeout(5)
 
-        self.socketUDP.sendto(mensaje, self.direccionDestino)
+        while True:
+            self.socketUDP.sendto(mensaje, self.direccionDestino)
 
-        respuesta, add = self.socketUDP.recvfrom(1024)
-        parsed_respuesta = self.parse_segment(respuesta)
+            try:
+                respuesta, add = self.socketUDP.recvfrom(1024)
+                parsed_respuesta = self.parse_segment(respuesta)
 
-        if parsed_respuesta["SYN"] == 1 and parsed_respuesta["ACK"] == 1 and parsed_respuesta["FIN"] == 0 and parsed_respuesta["SEQ"] == self.seq + 1:
-            self.seq = parsed_respuesta["SEQ"] + 1
+                if parsed_respuesta["SYN"] == 1 and parsed_respuesta["ACK"] == 1 and parsed_respuesta["FIN"] == 0 and parsed_respuesta["SEQ"] == self.seq + 1:
+                    self.seq = parsed_respuesta["SEQ"] + 1
+                    break
 
-            parsed_ack = {
-                "SYN": 0,
-                "ACK": 1,
-                "FIN": 0,
-                "SEQ": self.seq,
-                "DATOS": parsed_respuesta["DATOS"]
-            }
+            except socket.timeout:
+                continue
 
-            mensaje_ack = self.create_segment(parsed_ack)
-            self.socketUDP.sendto(mensaje_ack, self.direccionDestino)
-
-        else: 
-            print("Error en la conexión")
+        parsed_ack = {
+            "SYN": 0, 
+            "ACK": 1, 
+            "FIN": 0,
+            "SEQ": self.seq, 
+            "DATOS": b''
+            }        
+        
+        mensaje_ack = self.create_segment(parsed_ack)
+        self.socketUDP.sendto(mensaje_ack, self.direccionDestino)
 
     
     def accept(self):
-        mensaje, add = self.socketUDP.recvfrom(1024)
-        parsed_mensaje = self.parse_segment(mensaje)
 
-        if parsed_mensaje["SYN"] == 1 and parsed_mensaje["ACK"] == 0 and parsed_mensaje["FIN"] == 0:
-            self.direccionDestino = add
-            self.seq = parsed_mensaje["SEQ"] + 1
+        while True:
+            mensaje, add = self.socketUDP.recvfrom(1024)
+            parsed_mensaje = self.parse_segment(mensaje)
 
-            parsed_syn_ack = {
-                "SYN": 1,
-                "ACK": 1,
-                "FIN": 0,
-                "SEQ": self.seq,
-                "DATOS": b''
-            }
+            if parsed_mensaje["SYN"] == 1 and parsed_mensaje["ACK"] == 0 and parsed_mensaje["FIN"] == 0:
+                self.direccionDestino = add
+                self.seq = parsed_mensaje["SEQ"] + 1
 
-            mensaje_syn_ack = self.create_segment(parsed_syn_ack)
+                parsed_syn_ack = {
+                    "SYN": 1,
+                    "ACK": 1,
+                    "FIN": 0,
+                    "SEQ": self.seq,
+                    "DATOS": b''
+                }
+
+                break
+
+        mensaje_syn_ack = self.create_segment(parsed_syn_ack)
+        self.socketUDP.settimeout(5)
+
+        while True:
             self.socketUDP.sendto(mensaje_syn_ack, self.direccionDestino)
 
-            respuesta, add = self.socketUDP.recvfrom(1024)
-            parsed_respuesta = self.parse_segment(respuesta)
+            try:
+                respuesta, add = self.socketUDP.recvfrom(1024)
+                parsed_respuesta = self.parse_segment(respuesta)
 
-            if parsed_respuesta["SYN"] == 0 and parsed_respuesta["ACK"] == 1 and parsed_respuesta["FIN"] == 0 and parsed_respuesta["SEQ"] == self.seq + 1:
+                if parsed_respuesta["SYN"] == 0 and parsed_respuesta["ACK"] == 1 and parsed_respuesta["FIN"] == 0 and parsed_respuesta["SEQ"] == self.seq + 1:
+
+                    return self, self.direccionOrigen
                 
-                return self, self.direccionOrigen
+                if parsed_respuesta["SYN"] == 0 and parsed_respuesta["ACK"] == 0 and parsed_respuesta["FIN"] == 0:
+
+                    self.msg_perdido = parsed_respuesta
+                    return self, self.direccionOrigen
 
 
-            else:
-                print("Error en la conexión")
+            except socket.timeout:
+                continue
 
-        else:
-            print("Error en la conexión")
 
 
     def send(self, message):
@@ -213,9 +229,12 @@ class SocketTCP():
     def recv(self, buff_size):
 
         if self.in_mensaje == 0:
-
-            mensaje, _ = self.socketUDP.recvfrom(1024)
-            parsed_mensaje = self.parse_segment(mensaje)
+            if self.msg_perdido is not None:
+                parsed_mensaje = self.msg_perdido
+                self.msg_perdido = None
+            else:
+                mensaje, _ = self.socketUDP.recvfrom(1024)
+                parsed_mensaje = self.parse_segment(mensaje)
             datos = parsed_mensaje["DATOS"].rstrip(b'\x00')
             byte_length = len(datos)
             int_length = int(datos.decode("utf-8"))
