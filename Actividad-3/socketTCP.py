@@ -156,11 +156,11 @@ class SocketTCP():
                 parsed_respuesta = self.parse_segment(respuesta)
 
                 if parsed_respuesta["SYN"] == 0 and parsed_respuesta["ACK"] == 1 and parsed_respuesta["FIN"] == 0 and parsed_respuesta["SEQ"] == self.seq + 1:
-
+                    self.seq = parsed_respuesta["SEQ"]
                     return self, self.direccionOrigen
                 
                 if parsed_respuesta["SYN"] == 0 and parsed_respuesta["ACK"] == 0 and parsed_respuesta["FIN"] == 0:
-
+                    self.seq = parsed_respuesta["SEQ"]
                     self.msg_perdido = parsed_respuesta
                     return self, self.direccionOrigen
 
@@ -310,16 +310,15 @@ class SocketTCP():
                 mensaje_duplicado = self.create_segment(parsed_duplicado)
                 self.socketUDP.sendto(mensaje_duplicado, self.direccionDestino)
 
-        to_return = self.buffer[:buff_size]
+        msg_buffer = self.buffer[:buff_size]
         self.buffer = self.buffer[buff_size:]
 
         if self.recibido_total >= self.return_length and len(self.buffer) == 0:
             self.in_mensaje = 0
 
-        return to_return
+        return msg_buffer
     
     def close(self):
-
         self.socketUDP.settimeout(5)
 
         parsed_fin = {
@@ -332,26 +331,40 @@ class SocketTCP():
         
         mensaje_fin = self.create_segment(parsed_fin)
 
-        while True:
+        intentos = 0
+        fin_recibido = False
+
+        while intentos < 3 and not fin_recibido:
             self.socketUDP.sendto(mensaje_fin, self.direccionDestino)
             try:
                 respuesta, _ = self.socketUDP.recvfrom(1024)
                 parsed = self.parse_segment(respuesta)
+
                 if (parsed["FIN"] == 1 and parsed["ACK"] == 1 and parsed["SEQ"] == self.seq + 1):
                     self.seq = parsed["SEQ"] + 1
-                    break
-            except socket.timeout:
-                continue
+                    fin_recibido = True
 
-        parsed_ack = {
-            "SYN": 0, 
-            "ACK": 1, 
-            "FIN": 0,
-            "SEQ": self.seq, 
-            "DATOS": b''
-            }
-        
-        self.socketUDP.sendto(self.create_segment(parsed_ack), self.direccionDestino)
+            except socket.timeout:
+                intentos += 1
+
+        if fin_recibido:
+            parsed_ack = {
+                "SYN": 0, 
+                "ACK": 1, 
+                "FIN": 0,
+                "SEQ": self.seq, 
+                "DATOS": b''
+                }
+            
+            mensaje_ack = self.create_segment(parsed_ack)
+
+            for i in range(3):
+                self.socketUDP.sendto(mensaje_ack, self.direccionDestino)
+                if i < 2:
+                    try:
+                        self.socketUDP.recvfrom(1024) 
+                    except socket.timeout:
+                        pass
 
         self.socketUDP.close()
 
@@ -375,12 +388,22 @@ class SocketTCP():
             "DATOS": b''
             }
         
-        self.socketUDP.sendto(self.create_segment(parsed_ack), self.direccionDestino)
+        mensaje_ack = self.create_segment(parsed_ack)
+        self.socketUDP.sendto(mensaje_ack, self.direccionDestino)
+        intentos = 0
 
-        while True:
-            mensaje, _ = self.socketUDP.recvfrom(1024)
-            parsed = self.parse_segment(mensaje)
-            if (parsed["FIN"] == 0 and parsed["ACK"] == 1 and parsed["SEQ"] == self.seq + 1):
-                break
+        while intentos < 3:
+            try:
+                mensaje, _ = self.socketUDP.recvfrom(1024)
+                parsed = self.parse_segment(mensaje)
+
+                if (parsed["FIN"] == 0 and parsed["ACK"] == 1 and parsed["SEQ"] == self.seq + 1):
+                    break
+
+                if (parsed["FIN"] == 1 and parsed["ACK"] == 0):
+                    self.socketUDP.sendto(mensaje_ack, self.direccionDestino)
+
+            except socket.timeout:
+                intentos += 1
 
         self.socketUDP.close()
