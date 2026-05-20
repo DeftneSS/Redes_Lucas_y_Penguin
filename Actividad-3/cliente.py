@@ -19,3 +19,12 @@ if __name__ == "__main__":
     message = "Mensaje de largo 19".encode()
     client_socketTCP.send(message)
     print("cc")
+
+    #close
+    client_socketTCP.recv_close()
+    print("Cerrado con éxito")
+
+    try:
+        client_socketTCP.send("Mensaje después de cerrar".encode())
+    except Exception as e:
+        print("Error al enviar después de cerrar:", e)

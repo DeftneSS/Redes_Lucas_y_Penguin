@@ -31,3 +31,7 @@ if __name__ == "__main__":
     print("Test 3 received:", message_part_1 + message_part_2)
     if (message_part_1 + message_part_2) == "Mensaje de largo 19".encode(): print("Test 3: Passed")
     else: print("Test 3: Failed")
+
+    #close
+    server_socketTCP.close()
+    print("Cerrado con éxito")
