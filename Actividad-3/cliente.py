@@ -10,9 +10,12 @@ if __name__ == "__main__":
     # test 1
     message = "Mensje de len=16".encode()
     client_socketTCP.send(message)
+    print("aa")
     # test 2
     message = "Mensaje de largo 19".encode()
     client_socketTCP.send(message)
+    print("bb")
     # test 3
     message = "Mensaje de largo 19".encode()
     client_socketTCP.send(message)
+    print("cc")
