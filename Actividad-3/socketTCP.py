@@ -228,13 +228,31 @@ class SocketTCP():
 
     def recv(self, buff_size):
 
+        self.socketUDP.settimeout(None)
+
         if self.in_mensaje == 0:
-            if self.msg_perdido is not None:
-                parsed_mensaje = self.msg_perdido
-                self.msg_perdido = None
-            else:
-                mensaje, _ = self.socketUDP.recvfrom(1024)
-                parsed_mensaje = self.parse_segment(mensaje)
+            while True:
+                if self.msg_perdido is not None:
+                    parsed_mensaje = self.msg_perdido
+                    self.msg_perdido = None
+                else:
+                    mensaje, _ = self.socketUDP.recvfrom(1024)
+                    parsed_mensaje = self.parse_segment(mensaje)
+
+                if parsed_mensaje["SEQ"] == self.seq:
+                    break
+
+                parsed_duplicado = {
+                    "SYN": 0,
+                    "ACK": 1,
+                    "FIN": 0,
+                    "SEQ": self.seq,
+                    "DATOS": b''
+                }
+
+                mensaje_duplicado = self.create_segment(parsed_duplicado)
+                self.socketUDP.sendto(mensaje_duplicado, self.direccionDestino)
+
             datos = parsed_mensaje["DATOS"].rstrip(b'\x00')
             byte_length = len(datos)
             int_length = int(datos.decode("utf-8"))
@@ -279,6 +297,18 @@ class SocketTCP():
                 
                 mensaje_ack = self.create_segment(parsed_ack)
                 self.socketUDP.sendto(mensaje_ack, self.direccionDestino)
+
+            else:
+                parsed_duplicado = {
+                    "SYN": 0,
+                    "ACK": 1,
+                    "FIN": 0,
+                    "SEQ": self.seq,
+                    "DATOS": b''
+                }
+
+                mensaje_duplicado = self.create_segment(parsed_duplicado)
+                self.socketUDP.sendto(mensaje_duplicado, self.direccionDestino)
 
         to_return = self.buffer[:buff_size]
         self.buffer = self.buffer[buff_size:]
