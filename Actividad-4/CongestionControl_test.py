@@ -33,9 +33,6 @@ def ssthresh_test(congestion_controler, MSS):
             and congestion_controler.get_MSS_in_cwnd() == 5: print("ssthresh test passed")
     else:
         print("ssthresh test failed")
-        print(congestion_controler.is_state_congestion_avoidance())
-        print(congestion_controler.get_cwnd())
-        print(congestion_controler.get_MSS_in_cwnd())
 
 
 def timeout_in_congestion_avoidance_test(congestion_controler, MSS):

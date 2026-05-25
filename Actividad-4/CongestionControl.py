@@ -10,18 +10,15 @@ class CongestionControl():
         return int(self.cwnd)
     
     def get_MSS_in_cwnd(self):
-        if (self.cwnd % self.MSS) != 0:
-            return int((self.cwnd // self.MSS) + 1)
-        
         return int(self.cwnd // self.MSS)
-    
+
     def event_ack_received(self):
         if self.current_state == "slow_start":
             self.cwnd += self.MSS
             if self.ssthresh is not None and self.cwnd >= self.ssthresh:
                 self.current_state = "congestion_avoidance"
         elif self.current_state == "congestion_avoidance":
-            self.cwnd += (self.MSS // self.get_MSS_in_cwnd())
+            self.cwnd += self.MSS / self.get_MSS_in_cwnd()
 
 
     def event_timeout(self):
