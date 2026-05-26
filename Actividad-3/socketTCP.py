@@ -6,6 +6,7 @@ class SocketTCP():
         
         self.socketUDP = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         self.direccionDestino = None
+        self.ip_origen = None
         self.direccionOrigen = None
         self.seq = 0
         self.ack = 0
@@ -83,6 +84,7 @@ class SocketTCP():
     def bind(self, address):
         self.socketUDP.bind(address)
         self.direccionOrigen = address
+        self.ip_origen = address[0]
 
     def connect(self, address):
         self.direccionDestino = address
@@ -120,8 +122,9 @@ class SocketTCP():
             "FIN": 0,
             "SEQ": self.seq, 
             "DATOS": b''
-            }        
-        
+            }
+           
+        self.direccionDestino = add
         mensaje_ack = self.create_segment(parsed_ack)
         self.socketUDP.sendto(mensaje_ack, self.direccionDestino)
 
@@ -149,22 +152,28 @@ class SocketTCP():
         mensaje_syn_ack = self.create_segment(parsed_syn_ack)
         self.socketUDP.settimeout(5)
 
+        new_socket = SocketTCP()
+        new_socket.direccionOrigen = (self.ip_origen, 0)
+        new_socket.ip_origen = self.ip_origen
+        new_socket.direccionDestino = self.direccionDestino
+        new_socket.seq = self.seq
+
         while True:
-            self.socketUDP.sendto(mensaje_syn_ack, self.direccionDestino)
+            new_socket.socketUDP.sendto(mensaje_syn_ack, self.direccionDestino)
             print("enviando syn+ack")
             try:
-                respuesta, add = self.socketUDP.recvfrom(1024)
-                parsed_respuesta = self.parse_segment(respuesta)
+                respuesta, add = new_socket.socketUDP.recvfrom(1024)
+                parsed_respuesta = new_socket.parse_segment(respuesta)
 
-                if parsed_respuesta["SYN"] == 0 and parsed_respuesta["ACK"] == 1 and parsed_respuesta["FIN"] == 0 and parsed_respuesta["SEQ"] == self.seq + 1:
-                    self.seq = parsed_respuesta["SEQ"]
-                    return self, self.direccionOrigen
+                if parsed_respuesta["SYN"] == 0 and parsed_respuesta["ACK"] == 1 and parsed_respuesta["FIN"] == 0 and parsed_respuesta["SEQ"] == new_socket.seq + 1:
+                    new_socket.seq = parsed_respuesta["SEQ"]
+                    return new_socket, new_socket.direccionOrigen
                 
                 if parsed_respuesta["SYN"] == 0 and parsed_respuesta["ACK"] == 0 and parsed_respuesta["FIN"] == 0:
-                    self.seq = parsed_respuesta["SEQ"]
-                    self.msg_perdido = parsed_respuesta
+                    new_socket.seq = parsed_respuesta["SEQ"]
+                    new_socket.msg_perdido = parsed_respuesta
                     print("se perdio el ack del handshake")
-                    return self, self.direccionOrigen
+                    return new_socket, new_socket.direccionOrigen
 
 
             except socket.timeout:

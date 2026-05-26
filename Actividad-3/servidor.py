@@ -16,10 +16,10 @@ if __name__ == "__main__":
     
 
     new_socket, new_address = socket_servidor.accept()
-    mensaje_recibido1 = socket_servidor.recv(70)
-    mensaje_recibido2 = socket_servidor.recv(70)
+    mensaje_recibido1 = new_socket.recv(70)
+    mensaje_recibido2 = new_socket.recv(70)
 
     print(mensaje_recibido1 + mensaje_recibido2)
 
-    socket_servidor.recv_close()
+    new_socket.recv_close()
     print("Se cerro el socket")
