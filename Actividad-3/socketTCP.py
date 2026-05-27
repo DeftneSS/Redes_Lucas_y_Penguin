@@ -123,7 +123,7 @@ class SocketTCP():
             "SEQ": self.seq, 
             "DATOS": b''
             }
-           
+        
         self.direccionDestino = add
         mensaje_ack = self.create_segment(parsed_ack)
         self.socketUDP.sendto(mensaje_ack, self.direccionDestino)
@@ -153,7 +153,7 @@ class SocketTCP():
         self.socketUDP.settimeout(5)
 
         new_socket = SocketTCP()
-        new_socket.direccionOrigen = (self.ip_origen, 0)
+        new_socket.direccionOrigen = (self.ip_origen, 0) #Explicar puerto 0 en informe
         new_socket.ip_origen = self.ip_origen
         new_socket.direccionDestino = self.direccionDestino
         new_socket.seq = self.seq

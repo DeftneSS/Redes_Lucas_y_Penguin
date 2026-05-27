@@ -2,6 +2,7 @@ import socket
 import random
 from socketUDP import SocketUDP
 from slidingWindowCC import SlidingWindowCC as swcc
+from CongestionControl import CongestionControl
 
 class SocketTCP():
     def __init__(self):
@@ -9,6 +10,7 @@ class SocketTCP():
         self.socketUDP = SocketUDP()
         self.direccionDestino = None
         self.direccionOrigen = None
+        self.ip_origen = None
         self.seq = 0
         self.ack = 0
         self.fin = 0
@@ -17,6 +19,7 @@ class SocketTCP():
         self.return_length = 0
         self.recibido_total = 0
         self.mensaje_recibido = b''
+        self.debug = False
 
     @staticmethod
     def parse_segment(segment):
@@ -82,6 +85,9 @@ class SocketTCP():
 
         return segment
     
+    def set_debug(self, value=True):
+        self.debug = value
+
     def bind(self, address):
         self.socketUDP.bind(address)
         self.direccionOrigen = address
@@ -103,7 +109,7 @@ class SocketTCP():
 
         while True:
             self.socketUDP.sendto(mensaje, self.direccionDestino)
-
+            print("enviando syn")
             try:
                 respuesta, add = self.socketUDP.recvfrom(1024)
                 parsed_respuesta = self.parse_segment(respuesta)
@@ -113,6 +119,7 @@ class SocketTCP():
                     break
 
             except socket.timeout:
+                print("no se ha recibido syn + ack")
                 continue
 
         parsed_ack = {
@@ -121,11 +128,11 @@ class SocketTCP():
             "FIN": 0,
             "SEQ": self.seq, 
             "DATOS": b''
-            }        
+            }
         
+        self.direccionDestino = add
         mensaje_ack = self.create_segment(parsed_ack)
         self.socketUDP.sendto(mensaje_ack, self.direccionDestino)
-
     
     def accept(self):
 
@@ -150,24 +157,32 @@ class SocketTCP():
         mensaje_syn_ack = self.create_segment(parsed_syn_ack)
         self.socketUDP.settimeout(5)
 
+        new_socket = SocketTCP()
+        new_socket.direccionOrigen = (self.ip_origen, 0)
+        new_socket.ip_origen = self.ip_origen
+        new_socket.direccionDestino = self.direccionDestino
+        new_socket.seq = self.seq
+
         while True:
-            self.socketUDP.sendto(mensaje_syn_ack, self.direccionDestino)
-
+            new_socket.socketUDP.sendto(mensaje_syn_ack, self.direccionDestino)
+            print("enviando syn+ack")
             try:
-                respuesta, add = self.socketUDP.recvfrom(1024)
-                parsed_respuesta = self.parse_segment(respuesta)
+                respuesta, add = new_socket.socketUDP.recvfrom(1024)
+                parsed_respuesta = new_socket.parse_segment(respuesta)
 
-                if parsed_respuesta["SYN"] == 0 and parsed_respuesta["ACK"] == 1 and parsed_respuesta["FIN"] == 0 and parsed_respuesta["SEQ"] == self.seq + 1:
-                    self.seq = parsed_respuesta["SEQ"]
-                    return self, self.direccionOrigen
+                if parsed_respuesta["SYN"] == 0 and parsed_respuesta["ACK"] == 1 and parsed_respuesta["FIN"] == 0 and parsed_respuesta["SEQ"] == new_socket.seq + 1:
+                    new_socket.seq = parsed_respuesta["SEQ"]
+                    return new_socket, new_socket.direccionOrigen
                 
                 if parsed_respuesta["SYN"] == 0 and parsed_respuesta["ACK"] == 0 and parsed_respuesta["FIN"] == 0:
-                    self.seq = parsed_respuesta["SEQ"]
-                    self.msg_perdido = parsed_respuesta
-                    return self, self.direccionOrigen
+                    new_socket.seq = parsed_respuesta["SEQ"]
+                    new_socket.msg_perdido = parsed_respuesta
+                    print("se perdio el ack del handshake")
+                    return new_socket, new_socket.direccionOrigen
 
 
             except socket.timeout:
+                print("no ha llegado ack del handshake")
                 continue
 
 
@@ -214,26 +229,38 @@ class SocketTCP():
                     fin_recibido = True
 
             except socket.timeout:
+                self.socketUDP.stop_timer(timer_index=0)
                 intentos += 1
+
+        try:
+            self.socketUDP.stop_timer(timer_index=0)
+        except AttributeError:
+            pass
 
         if fin_recibido:
             parsed_ack = {
-                "SYN": 0, 
-                "ACK": 1, 
+                "SYN": 0,
+                "ACK": 1,
                 "FIN": 0,
-                "SEQ": self.seq, 
+                "SEQ": self.seq,
                 "DATOS": b''
                 }
-            
+
             mensaje_ack = self.create_segment(parsed_ack)
 
             for i in range(3):
-                self.socketUDP.sendto(mensaje_ack, self.direccionDestino)
+                try:
+                    self.socketUDP.sendto(mensaje_ack, self.direccionDestino)
+                except ConnectionResetError:
+                    break
                 if i < 2:
                     try:
-                        self.socketUDP.recvfrom(1024) 
+                        self.socketUDP.recvfrom(1024)
                     except socket.timeout:
-                        pass
+                        self.socketUDP.stop_timer(timer_index=0)
+                    except ConnectionResetError:
+                        self.socketUDP.stop_timer(timer_index=0)
+                        break
 
         self.socketUDP.close()
 
@@ -273,7 +300,10 @@ class SocketTCP():
                     self.socketUDP.sendto(mensaje_ack, self.direccionDestino)
 
             except socket.timeout:
+                self.socketUDP.stop_timer(timer_index=0)
                 intentos += 1
+            except ConnectionResetError:
+                break
 
         self.socketUDP.close()
 
@@ -424,12 +454,22 @@ class SocketTCP():
         return msg_buffer
 
     def send_using_go_back_n(self, message):
-        
+
+        congestion_controller = CongestionControl(8)
+        MSS = congestion_controller.MSS
+
+        def debug_print(msg):
+            if self.debug:
+                print(f"(debug) {msg}")
+
         message_length = str(len(message)).encode("utf-8")
 
-        data_list = [message[i:i+16] for i in range(0, len(message), 16)]
+        data_list = [message[i:i+MSS] for i in range(0, len(message), MSS)]
         initial_seq = self.seq
-        data_to_send = swcc(4, [message_length] + data_list, initial_seq)
+        window_size = congestion_controller.get_MSS_in_cwnd()
+        data_to_send = swcc(window_size, [message_length] + data_list, initial_seq)
+
+        debug_print(f"init | MSS={MSS} | window_size={window_size} | cwnd={congestion_controller.get_cwnd()}B | ssthresh={congestion_controller.get_ssthresh()} | estado=slow_start | seq inicial={initial_seq}")
 
         current_data = data_to_send.get_data(0)
         current_seq = data_to_send.get_sequence_number(0)
@@ -445,7 +485,7 @@ class SocketTCP():
         mensaje = self.create_segment(current_segment)
         self.socketUDP.settimeout(5)
 
-        for i in range(4):
+        for i in range(window_size):
 
             data_i = data_to_send.get_data(i)
             if data_i is None:
@@ -461,6 +501,7 @@ class SocketTCP():
             }
 
             self.socketUDP.sendto(self.create_segment(parsed_i), self.direccionDestino)
+            debug_print(f"initial fill: enviado segmento slot={i} seq={seq_i} datos={data_i!r}")
 
         while current_data is not None:
             try:
@@ -468,12 +509,14 @@ class SocketTCP():
                 respuesta_parsed = self.parse_segment(respuesta)
 
                 if not (respuesta_parsed["ACK"] == 1 and respuesta_parsed["SYN"] == 0 and respuesta_parsed["FIN"] == 0):
+                    debug_print(f"recibido segmento no-ACK, descartado (SEQ={respuesta_parsed['SEQ']})")
                     continue
 
                 ack_seq = respuesta_parsed["SEQ"]
+                debug_print(f"ACK recibido con seq={ack_seq}")
 
                 steps = 0
-                for i in range(4):
+                for i in range(window_size):
                     seq_i = data_to_send.get_sequence_number(i)
                     data_i = data_to_send.get_data(i)
                     if seq_i is None or data_i is None:
@@ -481,12 +524,15 @@ class SocketTCP():
                     if ack_seq == seq_i + len(data_i):
                         steps = i + 1
 
+                debug_print(f"cumulative ACK -> steps={steps}")
+
                 if steps > 0:
                     self.socketUDP.stop_timer()
                     data_to_send.move_window(steps)
+                    debug_print(f"ventana movida {steps} pasos, nuevo oldest seq={data_to_send.get_sequence_number(0)}")
 
                     timer_restarted = False
-                    for i in range(4 - steps, 4):
+                    for i in range(window_size - steps, window_size):
                         new_data = data_to_send.get_data(i)
                         if new_data is None:
                             continue
@@ -500,6 +546,7 @@ class SocketTCP():
                         }
                         self.socketUDP.sendto(self.create_segment(parsed_new), self.direccionDestino)
                         timer_restarted = True
+                        debug_print(f"nuevo segmento enviado slot={i} seq={new_seq} datos={new_data!r}")
 
                     if not timer_restarted and data_to_send.get_data(0) is not None:
                         prim_datos = data_to_send.get_data(0)
@@ -512,16 +559,16 @@ class SocketTCP():
                             "DATOS": prim_datos.ljust(16, b'\x00')
                         }
                         self.socketUDP.sendto(self.create_segment(parsed), self.direccionDestino)
+                        debug_print(f"kick-resend del oldest para reiniciar timer (seq={prim_seq})")
 
-                    # ack_seq es el próximo byte esperado (cumulative ACK).
-                    # Lo guardamos como self.seq así el próximo send arranca desde la
-                    # posición correcta, incluso si la ventana se vació.
                     self.seq = ack_seq
                     current_data = data_to_send.get_data(0)
+                    debug_print(f"self.seq actualizado a {self.seq} | oldest actual={current_data!r}")
 
             except TimeoutError:
                 self.socketUDP.stop_timer()
-                for i in range(4):
+                debug_print("TimeoutError -> retransmitiendo ventana completa")
+                for i in range(window_size):
                     data_i = data_to_send.get_data(i)
                     if data_i is None:
                         break
@@ -534,12 +581,11 @@ class SocketTCP():
                         "DATOS": data_i.ljust(16, b'\x00')
                     }
                     self.socketUDP.sendto(self.create_segment(parsed_i), self.direccionDestino)
+                    debug_print(f"retransmitido slot={i} seq={seq_i}")
 
 
     def recv_using_go_back_n(self, buff_size):
 
-        # Limpiar timer pendiente del handshake (o operación previa) y deshabilitar
-        # la creación de timers en el receiver (los ACKs no necesitan timeout)
         try:
             self.socketUDP.stop_timer(timer_index=0)
         except AttributeError:
@@ -558,7 +604,6 @@ class SocketTCP():
                 if parsed_mensaje["SEQ"] == self.seq:
                     break
 
-                # SEQ fuera de orden: ACK acumulativo del último SEQ esperado
                 parsed_duplicado = {
                     "SYN": 0,
                     "ACK": 1,
@@ -569,7 +614,6 @@ class SocketTCP():
                 mensaje_duplicado = self.create_segment(parsed_duplicado)
                 self.socketUDP.sendto(mensaje_duplicado, self.direccionDestino)
 
-            # Procesar el segmento del largo
             datos = parsed_mensaje["DATOS"].rstrip(b'\x00')
             byte_length = len(datos)
             int_length = int(datos.decode("utf-8"))
@@ -590,6 +634,8 @@ class SocketTCP():
             self.socketUDP.sendto(mensaje_ack, self.direccionDestino)
             self.in_mensaje = 1
 
+        MSS = 8
+
         while len(self.buffer) < buff_size and self.recibido_total < self.return_length:
 
             mensaje, _ = self.socketUDP.recvfrom(1024)
@@ -597,7 +643,7 @@ class SocketTCP():
 
             if parsed_mensaje["SEQ"] == self.seq:
                 bytes_restantes = self.return_length - self.recibido_total
-                particion = min(16, bytes_restantes)
+                particion = min(MSS, bytes_restantes)
                 self.buffer += parsed_mensaje["DATOS"][:particion]
                 self.recibido_total += particion
                 self.seq += particion

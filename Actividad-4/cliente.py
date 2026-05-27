@@ -1,9 +1,13 @@
 import socket
+import sys
 import socketTCP
 
 if __name__ == "__main__":
+    debug = "--debug" in sys.argv or "-d" in sys.argv
+
     # CLIENT
     client_socketTCP = socketTCP.SocketTCP()
+    client_socketTCP.set_debug(debug)
     print("a")
     client_socketTCP.connect(("localhost", 1234))
     print("b")
