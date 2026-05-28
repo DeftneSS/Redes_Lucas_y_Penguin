@@ -155,7 +155,7 @@ class SocketTCP():
         self.socketUDP.settimeout(5)
 
         new_socket = SocketTCP()
-        new_socket.direccionOrigen = (self.ip_origen, 0) #Explicar puerto 0 en informe
+        new_socket.direccionOrigen = (self.ip_origen, 0) 
         new_socket.ip_origen = self.ip_origen
         new_socket.direccionDestino = self.direccionDestino
         new_socket.seq = self.seq
@@ -226,7 +226,7 @@ class SocketTCP():
                 "ACK": 0,
                 "FIN": 0,
                 "SEQ": self.seq,
-                "DATOS": particion.ljust(16, b'\x00')  #Rellena con ceros para llegar a 16 bytes (explicar en informe)
+                "DATOS": particion.ljust(16, b'\x00') 
             }
             mensaje_particion = self.create_segment(parsed_particion)
             while True:
