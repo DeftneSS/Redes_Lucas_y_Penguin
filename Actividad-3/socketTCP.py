@@ -16,6 +16,7 @@ class SocketTCP():
         self.return_length = 0
         self.recibido_total = 0
         self.buffer = b''
+        self.debug = 0
 
     @staticmethod
     def parse_segment(segment):
@@ -53,6 +54,7 @@ class SocketTCP():
 
 
     @staticmethod
+
     def create_segment(parsed_segment):
 
         segment = bytearray(21)
@@ -103,7 +105,7 @@ class SocketTCP():
 
         while True:
             self.socketUDP.sendto(mensaje, self.direccionDestino)
-            print("enviando syn")
+            if self.debug: print("enviando syn")
             try:
                 respuesta, add = self.socketUDP.recvfrom(1024)
                 parsed_respuesta = self.parse_segment(respuesta)
@@ -113,7 +115,7 @@ class SocketTCP():
                     break
 
             except socket.timeout:
-                print("no se ha recibido syn + ack")
+                if self.debug: print("no se ha recibido syn + ack")
                 continue
 
         parsed_ack = {
@@ -157,10 +159,11 @@ class SocketTCP():
         new_socket.ip_origen = self.ip_origen
         new_socket.direccionDestino = self.direccionDestino
         new_socket.seq = self.seq
+        new_socket.socketUDP.settimeout(5)
 
         while True:
             new_socket.socketUDP.sendto(mensaje_syn_ack, self.direccionDestino)
-            print("enviando syn+ack")
+            if self.debug:print("enviando syn+ack")
             try:
                 respuesta, add = new_socket.socketUDP.recvfrom(1024)
                 parsed_respuesta = new_socket.parse_segment(respuesta)
@@ -172,12 +175,12 @@ class SocketTCP():
                 if parsed_respuesta["SYN"] == 0 and parsed_respuesta["ACK"] == 0 and parsed_respuesta["FIN"] == 0:
                     new_socket.seq = parsed_respuesta["SEQ"]
                     new_socket.msg_perdido = parsed_respuesta
-                    print("se perdio el ack del handshake")
+                    if self.debug: print("se perdio el ack del handshake")
                     return new_socket, new_socket.direccionOrigen
 
 
             except socket.timeout:
-                print("no ha llegado ack del handshake")
+                if self.debug: print("no ha llegado ack del handshake")
                 continue
 
 
@@ -200,7 +203,7 @@ class SocketTCP():
 
         while True:
             self.socketUDP.sendto(mensaje, self.direccionDestino)
-            print("enviando largo del mensaje")
+            if self.debug: print("enviando largo del mensaje")
             try:
                 respuesta, add = self.socketUDP.recvfrom(1024)
                 respuesta_parsed = self.parse_segment(respuesta)
@@ -210,7 +213,7 @@ class SocketTCP():
 
 
             except socket.timeout:
-                print("no se ha recibido ack")
+                if self.debug: print("no se ha recibido ack")
                 continue
 
         contador = 0
@@ -228,18 +231,19 @@ class SocketTCP():
             mensaje_particion = self.create_segment(parsed_particion)
             while True:
                 self.socketUDP.sendto(mensaje_particion, self.direccionDestino)
-                print("enviando contenido del mensaje")
+                if self.debug: print("enviando contenido del mensaje")
                 try:
                     respuesta, add = self.socketUDP.recvfrom(1024)
                     respuesta_parsed = self.parse_segment(respuesta)
                     if respuesta_parsed["SYN"] == 0 and respuesta_parsed["ACK"] == 1 and respuesta_parsed["FIN"] == 0 and respuesta_parsed["SEQ"] == self.seq + particion_length:
                         self.seq += particion_length
                         contador += particion_length
+                        if self.debug: print("recibido ack")
                         break
 
                 except socket.timeout:
-                    print("no ha llegado el ack del mensaje en send")
-                    print("reenviando mensaje")
+                    if self.debug: print("no ha llegado el ack del mensaje en send")
+                    if self.debug: print("reenviando mensaje")
                     continue
 
     def recv(self, buff_size):
@@ -251,7 +255,7 @@ class SocketTCP():
                 if self.msg_perdido is not None:
                     parsed_mensaje = self.msg_perdido
                     self.msg_perdido = None
-                    print("recuperada perdida en el handshake")
+                    if self.debug: print("recuperada perdida en el handshake")
                 else:
                     mensaje, _ = self.socketUDP.recvfrom(1024)
                     parsed_mensaje = self.parse_segment(mensaje)
@@ -269,7 +273,7 @@ class SocketTCP():
 
                 mensaje_duplicado = self.create_segment(parsed_duplicado)
                 self.socketUDP.sendto(mensaje_duplicado, self.direccionDestino)
-                print("se envió duplicado")
+                if self.debug: print("se envió duplicado")
 
             datos = parsed_mensaje["DATOS"].rstrip(b'\x00')
             byte_length = len(datos)
@@ -290,7 +294,7 @@ class SocketTCP():
             
             mensaje_ack = self.create_segment(parsed_ack)
             self.socketUDP.sendto(mensaje_ack, self.direccionDestino)
-            print("enviando ack en recv")
+            if self.debug: print("enviando ack en recv")
             self.in_mensaje = 1
         else:
             parsed_ack = {
@@ -309,7 +313,7 @@ class SocketTCP():
 
             mensaje, _ = self.socketUDP.recvfrom(1024)
             parsed_mensaje = self.parse_segment(mensaje)
-            print("se recibió el mensaje")
+            if self.debug: print("se recibió el mensaje")
             if parsed_mensaje["SEQ"] == self.seq:
                 bytes_restantes = self.return_length - self.recibido_total
                 particion = min(16, bytes_restantes)
@@ -327,7 +331,7 @@ class SocketTCP():
                 
                 mensaje_ack = self.create_segment(parsed_ack)
                 self.socketUDP.sendto(mensaje_ack, self.direccionDestino)
-
+                if self.debug: print("enviando ack")
             else:
                 parsed_duplicado = {
                     "SYN": 0,
@@ -339,20 +343,34 @@ class SocketTCP():
 
                 mensaje_duplicado = self.create_segment(parsed_duplicado)
                 self.socketUDP.sendto(mensaje_duplicado, self.direccionDestino)
-                print("se perdio ack hacia send")
-                print("reenviando ack en recv")
+                if self.debug: print("se perdio ack hacia send")
+                if self.debug: print("reenviando ack en recv")
 
         msg_buffer = self.buffer[:buff_size]
         self.buffer = self.buffer[buff_size:]
         
         if self.recibido_total < self.return_length:
-            mensaje, _ = self.socketUDP.recvfrom(1024)
-            parsed_mensaje = self.parse_segment(mensaje)
-            bytes_restantes = self.return_length - self.recibido_total
-            particion = min(16, bytes_restantes)
-            self.buffer += parsed_mensaje["DATOS"][:particion]
-            self.recibido_total += particion
-            self.seq += particion    
+            while True:
+                mensaje, _ = self.socketUDP.recvfrom(1024)
+                parsed_mensaje = self.parse_segment(mensaje)
+                if parsed_mensaje["SEQ"] == self.seq:
+                    bytes_restantes = self.return_length - self.recibido_total
+                    particion = min(16, bytes_restantes)
+                    self.buffer += parsed_mensaje["DATOS"][:particion]
+                    self.recibido_total += particion
+                    self.seq += particion
+                    break
+                else:
+                    parsed_duplicado = {
+                    "SYN": 0,
+                    "ACK": 1,
+                    "FIN": 0,
+                    "SEQ": self.seq,
+                    "DATOS": b''
+                    }
+                    mensaje_duplicado = self.create_segment(parsed_duplicado)
+                    self.socketUDP.sendto(mensaje_duplicado, self.direccionDestino)
+                        
 
         if self.recibido_total >= self.return_length and len(self.buffer) == 0:
             self.in_mensaje = 0
@@ -377,7 +395,7 @@ class SocketTCP():
 
         while intentos < 3 and not fin_recibido:
             self.socketUDP.sendto(mensaje_fin, self.direccionDestino)
-            print("se envió fin")
+            if self.debug: print("se envió fin")
             try:
                 respuesta, _ = self.socketUDP.recvfrom(1024)
                 parsed = self.parse_segment(respuesta)
@@ -385,10 +403,11 @@ class SocketTCP():
                 if (parsed["FIN"] == 1 and parsed["ACK"] == 1 and parsed["SEQ"] == self.seq + 1):
                     self.seq = parsed["SEQ"] + 1
                     fin_recibido = True
+                    if self.debug: print("se recibió fin+ack")
 
             except socket.timeout:
-                print("no se recibio fin + ack")
-                print("reenviando fin")
+                if self.debug: print("no se recibio fin + ack")
+                if self.debug: print("reenviando fin")
                 intentos += 1
 
         if fin_recibido:
@@ -415,7 +434,7 @@ class SocketTCP():
                 parsed = self.parse_segment(mensaje)
                 if (parsed["FIN"] == 1 and parsed["ACK"] == 0):
                     self.seq = parsed["SEQ"] + 1
-                    print("se recibio fin")
+                    if self.debug: print("se recibio fin")
                     break
                 else:
                     parsed_ack_perdido = {
@@ -427,10 +446,10 @@ class SocketTCP():
                         }
                     ack_perdido = self.create_segment(parsed_ack_perdido)
                     self.socketUDP.sendto(ack_perdido, self.direccionDestino)
-                    print("se perdio el último ack de recv")
-                    print("reenviando")
+                    if self.debug: print("se perdio el último ack de recv")
+                    if self.debug: print("reenviando")
             except socket.timeout:
-                print("no se ha recibido fin")
+                if self.debug: print("no se ha recibido fin")
                 continue
 
         parsed_ack = {
@@ -458,5 +477,11 @@ class SocketTCP():
 
             except socket.timeout:
                 intentos += 1
+                if self.debug: print("no se ha recibido el ultimo ack")
 
         self.socketUDP.close()
+
+    def debug_on(self):
+        self.debug = 1
+    def debug_off(self):
+        self.debug = 0
