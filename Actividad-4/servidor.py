@@ -8,11 +8,8 @@ if __name__ == "__main__":
     # SERVER
     server_socketTCP = socketTCP.SocketTCP()
     server_socketTCP.set_debug(debug)
-    print("a")
     server_socketTCP.bind(("localhost", 1234))
-    print("b")
     connection_socketTCP, new_address = server_socketTCP.accept()
-    print("c")
 
     # test 1
     buff_size = 16

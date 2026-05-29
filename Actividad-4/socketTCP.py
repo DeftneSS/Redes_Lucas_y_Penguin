@@ -462,6 +462,10 @@ class SocketTCP():
             if self.debug:
                 print(f"(debug) {msg}")
 
+        def debug_window():
+            if self.debug:
+                print(data_to_send)
+
         message_length = str(len(message)).encode("utf-8")
 
         data_list = [message[i:i+MSS] for i in range(0, len(message), MSS)]
@@ -484,6 +488,7 @@ class SocketTCP():
 
         mensaje = self.create_segment(current_segment)
         self.socketUDP.settimeout(5)
+        last_sent_seq = initial_seq - 1
 
         for i in range(window_size):
 
@@ -501,7 +506,10 @@ class SocketTCP():
             }
 
             self.socketUDP.sendto(self.create_segment(parsed_i), self.direccionDestino)
-            debug_print(f"initial fill: enviado segmento slot={i} seq={seq_i} datos={data_i!r}")
+            last_sent_seq = max(last_sent_seq, seq_i)
+            debug_print(f"Enviando segmento slot={i} seq={seq_i} datos={data_i!r}")
+
+        debug_window()
 
         while current_data is not None:
             try:
@@ -515,6 +523,19 @@ class SocketTCP():
                 ack_seq = respuesta_parsed["SEQ"]
                 debug_print(f"ACK recibido con seq={ack_seq}")
 
+                while data_to_send.get_data(0) is not None:
+                    ultimo_seq_mas_len = None
+                    for i in range(window_size - 1, -1, -1):
+                        seq_i = data_to_send.get_sequence_number(i)
+                        data_i = data_to_send.get_data(i)
+                        if seq_i is not None and data_i is not None:
+                            ultimo_seq_mas_len = seq_i + len(data_i)
+                            break
+                    if ultimo_seq_mas_len is None or ack_seq <= ultimo_seq_mas_len:
+                        break
+                    data_to_send.move_window(1)
+                    debug_print(f"caso borde: ack_seq={ack_seq} > último de ventana ({ultimo_seq_mas_len}) → move_window(1)")
+
                 steps = 0
                 for i in range(window_size):
                     seq_i = data_to_send.get_sequence_number(i)
@@ -524,29 +545,42 @@ class SocketTCP():
                     if ack_seq == seq_i + len(data_i):
                         steps = i + 1
 
-                debug_print(f"cumulative ACK -> steps={steps}")
+                debug_print(f"Acumulative ACK -> steps={steps}")
 
                 if steps > 0:
                     self.socketUDP.stop_timer()
+
+                    for _ in range(steps):
+                        congestion_controller.event_ack_received()
+
+                    new_window_size = congestion_controller.get_MSS_in_cwnd()
+
                     data_to_send.move_window(steps)
-                    debug_print(f"ventana movida {steps} pasos, nuevo oldest seq={data_to_send.get_sequence_number(0)}")
+                    if new_window_size != window_size:
+                        data_to_send.update_window_size(new_window_size)
+                        window_size = new_window_size
+
+                    estado = "slow_start" if congestion_controller.is_state_slow_start() else "congestion_avoidance"
+                    debug_print(f"event_ack_received x{steps} | cwnd={congestion_controller.get_cwnd()}B ({window_size} MSS) | ssthresh={congestion_controller.get_ssthresh()} | estado={estado}")
 
                     timer_restarted = False
-                    for i in range(window_size - steps, window_size):
-                        new_data = data_to_send.get_data(i)
-                        if new_data is None:
-                            continue
+                    for i in range(window_size):
                         new_seq = data_to_send.get_sequence_number(i)
-                        parsed_new = {
-                            "SYN": 0,
-                            "ACK": 0,
-                            "FIN": 0,
-                            "SEQ": new_seq,
-                            "DATOS": new_data.ljust(16, b'\x00')
-                        }
-                        self.socketUDP.sendto(self.create_segment(parsed_new), self.direccionDestino)
-                        timer_restarted = True
-                        debug_print(f"nuevo segmento enviado slot={i} seq={new_seq} datos={new_data!r}")
+                        new_data = data_to_send.get_data(i)
+                        if new_seq is None or new_data is None:
+                            continue
+                        if new_seq > last_sent_seq:
+                            parsed_new = {
+                                "SYN": 0,
+                                "ACK": 0,
+                                "FIN": 0,
+                                "SEQ": new_seq,
+                                "DATOS": new_data.ljust(16, b'\x00')
+                            }
+                            self.socketUDP.sendto(self.create_segment(parsed_new), self.direccionDestino)
+                            last_sent_seq = new_seq
+                            timer_restarted = True
+                            debug_print(f"nuevo segmento enviado slot={i} seq={new_seq} datos={new_data!r}")
 
                     if not timer_restarted and data_to_send.get_data(0) is not None:
                         prim_datos = data_to_send.get_data(0)
@@ -564,10 +598,20 @@ class SocketTCP():
                     self.seq = ack_seq
                     current_data = data_to_send.get_data(0)
                     debug_print(f"self.seq actualizado a {self.seq} | oldest actual={current_data!r}")
+                    debug_window()
 
             except TimeoutError:
                 self.socketUDP.stop_timer()
-                debug_print("TimeoutError -> retransmitiendo ventana completa")
+                debug_print("TimeoutError -> event_timeout + retransmisión")
+                congestion_controller.event_timeout()
+                new_window_size = congestion_controller.get_MSS_in_cwnd()
+                if new_window_size != window_size:
+                    data_to_send.update_window_size(new_window_size)
+                    window_size = new_window_size
+
+                estado = "slow_start" if congestion_controller.is_state_slow_start() else "congestion_avoidance"
+                debug_print(f"event_timeout | cwnd={congestion_controller.get_cwnd()}B ({window_size} MSS) | ssthresh={congestion_controller.get_ssthresh()} | estado={estado}")
+
                 for i in range(window_size):
                     data_i = data_to_send.get_data(i)
                     if data_i is None:
@@ -581,7 +625,9 @@ class SocketTCP():
                         "DATOS": data_i.ljust(16, b'\x00')
                     }
                     self.socketUDP.sendto(self.create_segment(parsed_i), self.direccionDestino)
+                    last_sent_seq = max(last_sent_seq, seq_i)
                     debug_print(f"retransmitido slot={i} seq={seq_i}")
+                debug_window()
 
 
     def recv_using_go_back_n(self, buff_size):
