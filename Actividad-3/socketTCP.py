@@ -9,8 +9,6 @@ class SocketTCP():
         self.ip_origen = None
         self.direccionOrigen = None
         self.seq = 0
-        self.ack = 0
-        self.fin = 0
         self.msg_perdido = None
         self.in_mensaje = 0
         self.return_length = 0
