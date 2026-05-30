@@ -162,6 +162,7 @@ class SocketTCP():
         new_socket.ip_origen = self.ip_origen
         new_socket.direccionDestino = self.direccionDestino
         new_socket.seq = self.seq
+        new_socket.socketUDP.settimeout(5)
 
         while True:
             new_socket.socketUDP.sendto(mensaje_syn_ack, self.direccionDestino)
