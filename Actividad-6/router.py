@@ -63,29 +63,37 @@ def check_routes(routes_file_name, destination_addres):
     with open(routes_file_name, "r") as file:
         for line in file:
             line = line.strip()
-            if line == "":
+            if line == "" or line.startswith("#"):
                 continue
-            direccion_fin, puerto_ini, puerto_fin, direccion_sig, puerto_sig, mtu = line.split()
+            parts = line.split()
+            if len(parts) < 5:
+                continue
 
-            puerto_ini = int(puerto_ini)
-            puerto_fin = int(puerto_fin)
-            puerto_sig = int(puerto_sig)
-            mtu = int(mtu)
+            direccion_fin = parts[0]
+            puerto_ini = int(parts[1])
+            puerto_fin = int(parts[2])
+            direccion_sig = parts[3]
+            puerto_sig = int(parts[4])
+            if len(parts) >= 6:
+                mtu = int(parts[5])
+            else:
+                mtu = None
 
             ip_fin = direccion_fin.split("/")[0]
             if ip_fin != ip_destino:
                 continue
 
             if puerto_ini <= puerto_destino <= puerto_fin:
-                routes.append((direccion_sig, puerto_sig))
+                routes.append((direccion_sig, puerto_sig, mtu))
     if len(routes) == 0:
         return None
     end = destination_addres
     if end not in index:
         index[end] = 0
-    act_route = routes[index[end]]
+    direccion_sig, puerto_sig, mtu = routes[index[end]]
     index[end] = (index[end] + 1) % len(routes)
 
+    act_route = (direccion_sig, puerto_sig)
     return act_route, mtu
 
 if __name__ == "__main__":
@@ -108,12 +116,13 @@ if __name__ == "__main__":
             mensaje = parsed_packet["message"].decode()
             print(mensaje)
         else:
-            next_dir = check_routes(tabla_de_rutas, destino_final)
-            if next_dir is not None:
-                print(f"Redirigiendo paquete {packet} con destino final {destino_final} desde {direccion} hacia {next_dir}")
+            result = check_routes(tabla_de_rutas, destino_final)
+            if result is not None:
+                act_route, mtu = result
+                print(f"Redirigiendo paquete {packet} con destino final {destino_final} desde {direccion} hacia {act_route} (MTU={mtu})")
                 parsed_packet["ttl"] = parsed_packet["ttl"] - 1
                 packet = create_packet(parsed_packet)
-                socketUDP.sendto(packet, next_dir)
+                socketUDP.sendto(packet, act_route)
             else:
                 print(f"No hay rutas hacia {destino_final} para paquete {packet}")
 
