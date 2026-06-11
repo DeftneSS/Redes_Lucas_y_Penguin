@@ -6,16 +6,29 @@ def parse_packet(IP_packet):
     ip_bytes = IP_packet[:4]
     port_bytes = IP_packet[4:6]
     ttl_bytes = IP_packet[6]
-    message_bytes = IP_packet[7:]
+    id_bytes = IP_packet[7]
+    offset_bytes = IP_packet[8:10]
+
+    length_bytes = IP_packet[10:14]
+    length_int = int.from_bytes(length_bytes, byteorder="big")
+
+    flag_bytes = IP_packet[14]
+    message_bytes = IP_packet[15:15 + length_int]
 
     ip = ".".join(str(byte) for byte in ip_bytes)
 
     port = int.from_bytes(port_bytes, byteorder="big")
 
+    offset_int = int.from_bytes(offset_bytes, byteorder="big")
+
     parsed_packet = {
         "ip": ip,
         "port": port,
         "ttl": ttl_bytes,
+        "id": id_bytes,
+        "offset": offset_int,
+        "length": length_int,
+        "flag": flag_bytes,
         "message": message_bytes
     }
     return parsed_packet
@@ -24,14 +37,24 @@ def create_packet(parsed_packet):
     ip = parsed_packet["ip"]
     port = parsed_packet["port"]
     ttl = parsed_packet["ttl"]
+    id = parsed_packet["id"]
+    offset = parsed_packet["offset"]
+    length = parsed_packet["length"]
+    flag = parsed_packet["flag"]
     message = parsed_packet["message"]
 
     ip_bytes = bytes(int(num) for num in ip.split("."))
     port_bytes = port.to_bytes(2, byteorder="big")
     ttl_bytes = ttl.to_bytes(1, byteorder="big")
-    IP_packet = ip_bytes + port_bytes + ttl_bytes + message
+    id_bytes = id.to_bytes(1, byteorder="big")
+    offset_bytes = offset.to_bytes(2, byteorder="big")
+    length_bytes = length.to_bytes(4, byteorder="big")
+    flag_bytes = flag.to_bytes(1, byteorder="big")
+    IP_packet = ip_bytes + port_bytes + ttl_bytes + id_bytes + offset_bytes + length_bytes + flag_bytes + message
 
     return IP_packet
+
+
 
 def check_routes(routes_file_name, destination_addres):
     global index
@@ -42,11 +65,12 @@ def check_routes(routes_file_name, destination_addres):
             line = line.strip()
             if line == "":
                 continue
-            direccion_fin, puerto_ini, puerto_fin, direccion_sig, puerto_sig = line.split()
+            direccion_fin, puerto_ini, puerto_fin, direccion_sig, puerto_sig, mtu = line.split()
 
             puerto_ini = int(puerto_ini)
             puerto_fin = int(puerto_fin)
             puerto_sig = int(puerto_sig)
+            mtu = int(mtu)
 
             ip_fin = direccion_fin.split("/")[0]
             if ip_fin != ip_destino:
@@ -62,7 +86,7 @@ def check_routes(routes_file_name, destination_addres):
     act_route = routes[index[end]]
     index[end] = (index[end] + 1) % len(routes)
 
-    return act_route
+    return act_route, mtu
 
 if __name__ == "__main__":
     ip = sys.argv[1]
