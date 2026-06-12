@@ -96,6 +96,35 @@ def check_routes(routes_file_name, destination_addres):
     act_route = (direccion_sig, puerto_sig)
     return act_route, mtu
 
+def fragment_IP_packet(IP_packet, MTU):
+    if (len(IP_packet))<= MTU:
+        return [IP_packet]
+    else:
+        parsed_packet = parse_packet(IP_packet)
+        message = parsed_packet["message"]
+        message_fragment_size = MTU - 15
+        fragments = []
+        
+        for offset in range(0, len(message), message_fragment_size):
+            message_fragment = message[offset:offset+message_fragment_size]
+            parsed_fragment = {
+                "ip": parsed_packet["ip"],
+                "port": parsed_packet["port"],
+                "ttl": parsed_packet["ttl"],
+                "id": parsed_packet["id"],
+                "offset": offset,
+                "length": len(message_fragment),
+                "flag": 1,
+                "message": message_fragment
+            }
+            if offset+message_fragment_size >= len(message):
+                parsed_fragment["flag"] = 0
+            fragment = create_packet(parsed_fragment)
+
+            fragments.append(fragment)
+        return fragments
+
+
 if __name__ == "__main__":
     ip = sys.argv[1]
     puerto = sys.argv[2]
