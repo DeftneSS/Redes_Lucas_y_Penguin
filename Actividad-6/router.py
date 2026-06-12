@@ -96,6 +96,79 @@ def check_routes(routes_file_name, destination_addres):
     act_route = (direccion_sig, puerto_sig)
     return act_route, mtu
 
+
+def fragment_IP_packet(IP_packet, mtu):
+    header_size = 15
+    if len(IP_packet) <= mtu:
+        return [IP_packet]
+
+    message = IP_packet[header_size:]
+    message_length = len(message)
+    chunk_size = mtu - header_size
+
+    fragments = []
+    offset = 0
+    while offset < message_length:
+        fragment_message = message[offset:offset + chunk_size]
+        fragment_length = len(fragment_message)
+        fragment_offset = offset // chunk_size
+
+        if offset + chunk_size < message_length:
+            flag = 1
+        else:
+            flag = 0
+
+        fragment_header = bytearray(IP_packet[:header_size])
+        fragment_header[8:10] = fragment_offset.to_bytes(2, byteorder="big")
+        fragment_header[10:14] = fragment_length.to_bytes(4, byteorder="big")
+        fragment_header[14] = flag
+
+        fragments.append(bytes(fragment_header) + fragment_message)
+        offset += chunk_size
+
+    return fragments
+
+def reassemble_IP_packet(fragment_list):
+    if not fragment_list:
+        return None
+
+    header_size = 15
+
+    by_offset = {}
+    headers_by_offset = {}
+    for fragment in fragment_list:
+        parsed = parse_packet(fragment)
+        by_offset[parsed["offset"]] = parsed
+        headers_by_offset[parsed["offset"]] = fragment[:header_size]
+
+    total = len(fragment_list)
+
+    if total == 1:
+        fragment = by_offset[next(iter(by_offset))]
+        if fragment["offset"] == 0 and fragment["flag"] == 0:
+            return fragment_list[0]
+        return None
+    
+    for i in range(total):
+        if i not in by_offset:
+            return None
+        if i == total - 1:
+            expected_flag = 0
+        else:
+            expected_flag = 1
+        if by_offset[i]["flag"] != expected_flag:
+            return None
+
+    full_message = b"".join(by_offset[i]["message"] for i in range(total))
+
+    nuevo_header = bytearray(headers_by_offset[0])
+    nuevo_header[8:10] = (0).to_bytes(2, byteorder="big")
+    nuevo_header[10:14] = len(full_message).to_bytes(4, byteorder="big")
+    nuevo_header[14] = 0
+
+    return bytes(nuevo_header) + full_message
+
+
 if __name__ == "__main__":
     ip = sys.argv[1]
     puerto = sys.argv[2]
@@ -122,7 +195,9 @@ if __name__ == "__main__":
                 print(f"Redirigiendo paquete {packet} con destino final {destino_final} desde {direccion} hacia {act_route} (MTU={mtu})")
                 parsed_packet["ttl"] = parsed_packet["ttl"] - 1
                 packet = create_packet(parsed_packet)
-                socketUDP.sendto(packet, act_route)
+                fragments = fragment_IP_packet(packet, mtu)
+                for fragment in fragments:
+                    socketUDP.sendto(fragment, act_route)
             else:
                 print(f"No hay rutas hacia {destino_final} para paquete {packet}")
 

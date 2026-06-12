@@ -1,9 +1,7 @@
 import router
 
-# Construimos IP_packet_v1 manualmente respetando la estructura:
-# ip(4) + port(2) + ttl(1) + id(1) + offset(1) + length(4) + flag(1) + message(length)
 
-ip_bytes     = bytes([127, 0, 0, 1])                  # 127.0.0.1
+ip_bytes     = bytes([127, 0, 0, 1])
 port_bytes   = (8881).to_bytes(2, byteorder="big")
 ttl_bytes    = (5).to_bytes(1, byteorder="big")
 id_bytes     = (42).to_bytes(1, byteorder="big")
