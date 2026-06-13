@@ -195,6 +195,7 @@ if __name__ == "__main__":
                 continue
             mensaje_reensamblado = parse_packet(reensamblado)["message"].decode()
             print(mensaje_reensamblado)
+            del ID_dictionary[parsed_packet["id"]]
         else:
             result = check_routes(tabla_de_rutas, destino_final)
             if result is not None:

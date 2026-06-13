@@ -12,7 +12,6 @@ def parse_packet(IP_packet):
 
     port = int.from_bytes(port_bytes, byteorder="big")
 
-
     parsed_packet = {
         "ip": ip,
         "port": port,
@@ -33,8 +32,6 @@ def create_packet(parsed_packet):
     IP_packet = ip_bytes + port_bytes + ttl_bytes + message
 
     return IP_packet
-
-
 
 def check_routes(routes_file_name, destination_addres):
     global index
@@ -65,7 +62,7 @@ def check_routes(routes_file_name, destination_addres):
     act_route = routes[index[end]]
     index[end] = (index[end] + 1) % len(routes)
 
-    return act_route, mtu
+    return act_route
 
 if __name__ == "__main__":
     ip = sys.argv[1]
@@ -83,7 +80,7 @@ if __name__ == "__main__":
         destino_final = (packet_ip, packet_port)
         if parsed_packet["ttl"] == 0:
             print(f"Se recibió paquete {packet_ip} con ttl 0")
-        if packet_ip == ip and packet_port == int(puerto):
+        elif packet_ip == ip and packet_port == int(puerto):
             mensaje = parsed_packet["message"].decode()
             print(mensaje)
         else:
