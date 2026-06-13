@@ -174,6 +174,7 @@ if __name__ == "__main__":
     puerto = sys.argv[2]
     tabla_de_rutas = sys.argv[3]
     direccion = (ip,int(puerto))
+    ID_dictionary = {}
 
     socketUDP = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     socketUDP.bind(direccion)
@@ -186,8 +187,14 @@ if __name__ == "__main__":
         if parsed_packet["ttl"] == 0:
             print(f"Se recibió paquete {packet_ip} con ttl 0")
         if packet_ip == ip and packet_port == int(puerto):
-            mensaje = parsed_packet["message"].decode()
-            print(mensaje)
+            if parsed_packet["id"] not in ID_dictionary:
+                ID_dictionary[parsed_packet["id"]] = []
+            ID_dictionary[parsed_packet["id"]].append(packet)
+            reensamblado = reassemble_IP_packet(ID_dictionary[parsed_packet["id"]])
+            if reensamblado is None:
+                continue
+            mensaje_reensamblado = parse_packet(reensamblado)["message"].decode()
+            print(mensaje_reensamblado)
         else:
             result = check_routes(tabla_de_rutas, destino_final)
             if result is not None:
