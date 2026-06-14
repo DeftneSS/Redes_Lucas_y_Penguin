@@ -6,18 +6,20 @@ def parse_packet(IP_packet):
     ip_bytes = IP_packet[:4]
     port_bytes = IP_packet[4:6]
     ttl_bytes = IP_packet[6]
-    id_bytes = IP_packet[7]
-    offset_bytes = IP_packet[8:10]
+    id_bytes = IP_packet[7:9]
+    offset_bytes = IP_packet[9:11]
 
-    length_bytes = IP_packet[10:14]
+    length_bytes = IP_packet[11:15]
     length_int = int.from_bytes(length_bytes, byteorder="big")
 
-    flag_bytes = IP_packet[14]
-    message_bytes = IP_packet[15:15 + length_int]
+    flag_bytes = IP_packet[15]
+    message_bytes = IP_packet[16:16 + length_int]
 
     ip = ".".join(str(byte) for byte in ip_bytes)
 
     port = int.from_bytes(port_bytes, byteorder="big")
+
+    id = int.from_bytes(id_bytes, byteorder="big")
 
     offset_int = int.from_bytes(offset_bytes, byteorder="big")
 
@@ -25,7 +27,7 @@ def parse_packet(IP_packet):
         "ip": ip,
         "port": port,
         "ttl": ttl_bytes,
-        "id": id_bytes,
+        "id": id,
         "offset": offset_int,
         "length": length_int,
         "flag": flag_bytes,
@@ -46,7 +48,7 @@ def create_packet(parsed_packet):
     ip_bytes = bytes(int(num) for num in ip.split("."))
     port_bytes = port.to_bytes(2, byteorder="big")
     ttl_bytes = ttl.to_bytes(1, byteorder="big")
-    id_bytes = id.to_bytes(1, byteorder="big")
+    id_bytes = id.to_bytes(2, byteorder="big")
     offset_bytes = offset.to_bytes(2, byteorder="big")
     length_bytes = length.to_bytes(4, byteorder="big")
     flag_bytes = flag.to_bytes(1, byteorder="big")
@@ -98,76 +100,104 @@ def check_routes(routes_file_name, destination_addres):
 
 
 def fragment_IP_packet(IP_packet, mtu):
-    header_size = 15
+    header_size = 16
+
     if len(IP_packet) <= mtu:
         return [IP_packet]
 
-    message = IP_packet[header_size:]
-    message_length = len(message)
+    parsed = parse_packet(IP_packet)
+
+    base_offset = parsed["offset"]
+    original_flag = parsed["flag"]
+
+    message = parsed["message"]
+
     chunk_size = mtu - header_size
 
     fragments = []
+
     offset = 0
-    while offset < message_length:
+
+    while offset < len(message):
+
         fragment_message = message[offset:offset + chunk_size]
-        fragment_length = len(fragment_message)
-        fragment_offset = offset // chunk_size
 
-        if offset + chunk_size < message_length:
-            flag = 1
+        parsed_fragment = {
+            "ip" : parsed["ip"],
+            "port" : parsed["port"],
+            "ttl" : parsed["ttl"],
+            "id": parsed["id"],
+            "offset" : base_offset + offset,
+            "length" : len(fragment_message),
+            "flag": 1,
+            "message": fragment_message
+        }
+
+        if original_flag == 1:
+            parsed_fragment["flag"] = 1
+
         else:
-            flag = 0
+            if offset + chunk_size < len(message):
+                parsed_fragment["flag"] = 1
+            else:
+                parsed_fragment["flag"] = 0
 
-        fragment_header = bytearray(IP_packet[:header_size])
-        fragment_header[8:10] = fragment_offset.to_bytes(2, byteorder="big")
-        fragment_header[10:14] = fragment_length.to_bytes(4, byteorder="big")
-        fragment_header[14] = flag
+        fragments.append(create_packet(parsed_fragment))
 
-        fragments.append(bytes(fragment_header) + fragment_message)
         offset += chunk_size
 
     return fragments
 
 def reassemble_IP_packet(fragment_list):
-    if not fragment_list:
-        return None
-
-    header_size = 15
-
-    by_offset = {}
-    headers_by_offset = {}
+    parsed_fragments = []
     for fragment in fragment_list:
-        parsed = parse_packet(fragment)
-        by_offset[parsed["offset"]] = parsed
-        headers_by_offset[parsed["offset"]] = fragment[:header_size]
+        parsed_fragment = parse_packet(fragment)
+        parsed_fragments.append(parsed_fragment)
+    
 
-    total = len(fragment_list)
+    parsed_fragments.sort(key=lambda fragment: fragment["offset"])
 
-    if total == 1:
-        fragment = by_offset[next(iter(by_offset))]
+    if len(parsed_fragments) == 1:
+
+        fragment = parsed_fragments[0]
+
         if fragment["offset"] == 0 and fragment["flag"] == 0:
             return fragment_list[0]
+
+        return None
+
+
+    if parsed_fragments[0]["offset"] != 0:
+        return None
+    if parsed_fragments[len(parsed_fragments)-1]["flag"] != 0:
         return None
     
-    for i in range(total):
-        if i not in by_offset:
-            return None
-        if i == total - 1:
-            expected_flag = 0
-        else:
-            expected_flag = 1
-        if by_offset[i]["flag"] != expected_flag:
+    expected_offset = 0
+    for fragment in parsed_fragments:
+
+        if fragment["offset"] != expected_offset:
             return None
 
-    full_message = b"".join(by_offset[i]["message"] for i in range(total))
+        expected_offset += fragment["length"]
 
-    nuevo_header = bytearray(headers_by_offset[0])
-    nuevo_header[8:10] = (0).to_bytes(2, byteorder="big")
-    nuevo_header[10:14] = len(full_message).to_bytes(4, byteorder="big")
-    nuevo_header[14] = 0
+    full_message = b""
+    for fragment in parsed_fragments:
+        full_message += fragment["message"]
+    
+    first_fragment = parsed_fragments[0]
 
-    return bytes(nuevo_header) + full_message
+    parsed_packet = {
+        "ip": first_fragment["ip"],
+        "port": first_fragment["port"],
+        "ttl": first_fragment["ttl"],
+        "id": first_fragment["id"],
+        "offset": 0,
+        "length": len(full_message),
+        "flag": 0,
+        "message": full_message
+    }
 
+    return create_packet(parsed_packet)
 
 if __name__ == "__main__":
     ip = sys.argv[1]
@@ -186,7 +216,7 @@ if __name__ == "__main__":
         destino_final = (packet_ip, packet_port)
         if parsed_packet["ttl"] == 0:
             print(f"Se recibió paquete {packet_ip} con ttl 0")
-        if packet_ip == ip and packet_port == int(puerto):
+        elif packet_ip == ip and packet_port == int(puerto):
             if parsed_packet["id"] not in ID_dictionary:
                 ID_dictionary[parsed_packet["id"]] = []
             ID_dictionary[parsed_packet["id"]].append(packet)
